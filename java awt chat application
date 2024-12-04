@@ -1,0 +1,200 @@
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.net.*;
+
+public class ChatApp {
+    // GUI components
+    private Frame frame;
+    private TextArea messageArea;
+    private TextField inputField;
+    private Button sendButton;
+
+    private Frame serverFrame; // Server's GUI frame
+    private TextArea serverMessageArea; // Server's message area
+    private TextField serverInputField; // Server's input field
+    private Button serverSendButton; // Server's send button
+
+    // Network components for client-server communication
+    private Socket socket;
+    private PrintWriter out;
+    private BufferedReader in;
+
+    // Constructor to initialize the GUI and start both client and server
+    public ChatApp() {
+        // Set up the client GUI
+        frame = new Frame("Client Chat App");
+        frame.setSize(400, 400);
+        frame.setLayout(new BorderLayout());
+
+        // TextArea to display incoming and outgoing messages
+        messageArea = new TextArea();
+        messageArea.setEditable(false);
+        frame.add(messageArea, BorderLayout.CENTER);
+
+        // Input field and send button for user input
+        Panel panel = new Panel();
+        inputField = new TextField(30);
+        sendButton = new Button("Send");
+        panel.add(inputField);
+        panel.add(sendButton);
+        frame.add(panel, BorderLayout.SOUTH);
+
+        // Button event listener
+        sendButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                sendMessage();
+            }
+        });
+
+        // Start the server in a new thread
+        new Thread(new ChatServer()).start();
+
+        // Connect the client to the server
+        connectToServer();
+
+        // Display the client GUI frame
+        frame.setVisible(true);
+    }
+
+    // Method to connect the client to the server
+    private void connectToServer() {
+        try {
+            socket = new Socket("localhost", 12345); // Connect to localhost, port 12345
+            out = new PrintWriter(socket.getOutputStream(), true);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            // Start a new thread to listen for incoming messages from the server
+            new Thread(new MessageListener()).start();
+        } catch (IOException e) {
+            System.out.println("Error connecting to server: " + e.getMessage());
+        }
+    }
+
+    // Method to send a message to the server
+    private void sendMessage() {
+        String message = inputField.getText();
+        if (!message.isEmpty()) {
+            out.println(message); // Send the message to the server
+            messageArea.append("Me: " + message + "\n"); // Display the message in the chat window
+            inputField.setText(""); // Clear the input field
+        }
+    }
+
+    // Listener thread to receive messages from the server and display them in real time
+    private class MessageListener implements Runnable {
+        public void run() {
+            try {
+                String message;
+                while ((message = in.readLine()) != null) {
+                    messageArea.append("Server: " + message + "\n"); // Display received message
+                }
+            } catch (IOException e) {
+                System.out.println("Error receiving message: " + e.getMessage());
+            }
+        }
+    }
+
+    // Server functionality to listen for client connections and messages
+    private class ChatServer implements Runnable {
+        private ServerSocket serverSocket;
+
+        public ChatServer() {
+            try {
+                serverSocket = new ServerSocket(12345); // Listen on port 12345
+                System.out.println("Server is running...");
+                
+                // Set up the server GUI
+                serverFrame = new Frame("Server Chat App");
+                serverFrame.setSize(400, 400);
+                serverFrame.setLayout(new BorderLayout());
+
+                serverMessageArea = new TextArea();
+                serverMessageArea.setEditable(false);
+                serverFrame.add(serverMessageArea, BorderLayout.CENTER);
+
+                Panel panel = new Panel();
+                serverInputField = new TextField(30);
+                serverSendButton = new Button("Send");
+                panel.add(serverInputField);
+                panel.add(serverSendButton);
+                serverFrame.add(panel, BorderLayout.SOUTH);
+
+                serverSendButton.addActionListener(new ActionListener() {
+                    public void actionPerformed(ActionEvent e) {
+                        sendServerMessage();
+                    }
+                });
+
+                serverFrame.setVisible(true);
+            } catch (IOException e) {
+                System.out.println("Error starting server: " + e.getMessage());
+            }
+        }
+
+        public void run() {
+            try {
+                while (true) {
+                    // Accept client connections
+                    Socket clientSocket = serverSocket.accept();
+                    new Thread(new ClientHandler(clientSocket)).start(); // Handle each client in a new thread
+                }
+            } catch (IOException e) {
+                System.out.println("Error accepting client connection: " + e.getMessage());
+            }
+        }
+
+        // Handles communication with a connected client
+        private class ClientHandler implements Runnable {
+            private Socket clientSocket;
+            private PrintWriter out;
+            private BufferedReader in;
+
+            public ClientHandler(Socket clientSocket) {
+                this.clientSocket = clientSocket;
+                try {
+                    out = new PrintWriter(clientSocket.getOutputStream(), true);
+                    in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                } catch (IOException e) {
+                    System.out.println("Error setting up streams: " + e.getMessage());
+                }
+            }
+
+            public void run() {
+                try {
+                    String message;
+                    while ((message = in.readLine()) != null) {
+                        System.out.println("Client: " + message); // Print client message to server console
+                        serverMessageArea.append("Client: " + message + "\n"); // Display client message in server's chat window
+                        out.println("Server: " + message); // Echo the message back to the client
+                    }
+                } catch (IOException e) {
+                    System.out.println("Error communicating with client: " + e.getMessage());
+                }
+            }
+        }
+
+        // Method to send a message from server to client
+        private void sendServerMessage() {
+            String message = serverInputField.getText();
+            if (!message.isEmpty()) {
+                // Broadcast message to all connected clients
+                for (Socket clientSocket : serverSocket.getInetAddresses()) {
+                    try {
+                        PrintWriter clientOut = new PrintWriter(clientSocket.getOutputStream(), true);
+                        clientOut.println(message); // Send the message to the client
+                    } catch (IOException e) {
+                        System.out.println("Error sending server message: " + e.getMessage());
+                    }
+                }
+                serverMessageArea.append("Server: " + message + "\n"); // Display the message in server's chat window
+                serverInputField.setText(""); // Clear the input field
+            }
+        }
+    }
+
+    // Main method to start the chat application
+    public static void main(String[] args) {
+        new ChatApp(); // Start the combined client and server chat application
+    }
+}
